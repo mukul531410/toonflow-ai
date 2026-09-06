@@ -1,0 +1,15 @@
+# Python bytecode and local tooling state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Blender backup and autosave files
+*.blend1
+*.blend2
+*.blend@*
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
