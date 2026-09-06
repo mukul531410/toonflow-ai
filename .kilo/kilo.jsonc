@@ -7,8 +7,8 @@
     "edit": "allow",
     "bash": "allow",
     "external_directory": "ask",
-    "websearch": "ask",
-    "webfetch": "ask",
-    "task": "ask"
+    "websearch": "allow",
+    "webfetch": "allow",
+    "task": "allow"
   }
 }
