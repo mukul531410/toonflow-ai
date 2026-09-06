@@ -48,7 +48,9 @@ The shared documentation in `docs/` is the project’s primary source of truth f
 
 ## Current status
 
-`TOONFLOW-PHASE-032 — Batch Result Consistency Validation Foundation` is complete. `TOONFLOW-PHASE-033` is reserved as a placeholder. Future phases will be defined by the project owner.
+`TOONFLOW-PHASE-032 — Batch Result Consistency Validation Foundation` is complete.
+`TOONFLOW-PHASE-033 — Release / Runtime Readiness Audit Foundation` is complete.
+`TOONFLOW-PHASE-034` is reserved as a placeholder. Future phases will be defined by the project owner.
 
 ## Initial layout
 

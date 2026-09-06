@@ -68,9 +68,31 @@ subcommands gain a ``--dry-run`` flag. :mod:`workflow.manifest`
 adds :func:`dry_run_batch_manifest` for manifest-driven
 previews. Dry-run is an execution-time concern; the manifest
 schema is not extended.
+
+TOONFLOW-PHASE-033 — Runtime Readiness Audit Foundation
+-------------------------------------------------------
+
+:mod:`workflow.audit` adds a deterministic, read-only audit layer
+that evaluates the repository's implementation and readiness state
+without executing Blender. It distinguishes IMPLEMENTED, TEST_COVERED,
+BLENDER_UNVERIFIED, DOCUMENTED, BLOCKED, and NOT_APPLICABLE findings.
+Static/unit-test evidence is NOT equivalent to Blender runtime
+verification.
 """
 
 from .api import WorkflowResult, create_and_render_scene
+from .audit import (
+    AuditCategory,
+    AuditFinding,
+    AuditStatus,
+    AuditSummary,
+    RuntimeReadinessAudit,
+    audit_finding_to_dict,
+    audit_summary_to_dict,
+    collect_repository_audit,
+    runtime_readiness_audit_to_dict,
+    runtime_readiness_audit_to_json,
+)
 from .manifest import (
     BATCH_MANIFEST_SCHEMA_VERSION,
     BatchManifest,
@@ -143,4 +165,14 @@ __all__ = (
     "load_batch_manifest",
     "run_batch_manifest",
     "dry_run_batch_manifest",
+    "AuditStatus",
+    "AuditCategory",
+    "AuditFinding",
+    "AuditSummary",
+    "RuntimeReadinessAudit",
+    "audit_finding_to_dict",
+    "audit_summary_to_dict",
+    "collect_repository_audit",
+    "runtime_readiness_audit_to_dict",
+    "runtime_readiness_audit_to_json",
 )
