@@ -57,6 +57,24 @@ def _default_replay_project(project, *, workflow_callable=None):
     return replay_project(project, workflow_callable=workflow_callable)
 
 
+def _default_verify_blender_runtime(
+    *,
+    stdout,
+    blender_executable=None,
+    timeout_seconds=30,
+    json_output=False,
+):
+    """Delegate to :func:`workflow.verification.verify_blender_runtime`."""
+    from .verification import verify_blender_runtime
+
+    return verify_blender_runtime(
+        stdout=stdout,
+        blender_executable=blender_executable,
+        timeout_seconds=timeout_seconds,
+        json_output=json_output,
+    )
+
+
 def _default_run_batch(directory, mode, *, load_project, replay_project,
                       stdout, report_path=None, report_writer=None,
                       include=None, exclude=None, recursive=False,
@@ -477,6 +495,49 @@ def _build_parser():
         ),
     )
 
+    p_verify = subparsers.add_parser(
+        "verify-blender",
+        help="Verify the TOONFLOW AI add-on package in Blender.",
+        description=(
+            "Run a deterministic verification contract against "
+            "the TOONFLOW AI add-on package inside a real "
+            "Blender runtime. This command does NOT modify "
+            "project source files, batch semantics, or any "
+            "existing contracts. PHASE-034."
+        ),
+    )
+    p_verify.add_argument(
+        "--blender",
+        dest="blender_executable",
+        default=None,
+        help=(
+            "Path to the Blender executable. If not provided, "
+            "the verifier will attempt to auto-detect Blender "
+            "in the system PATH and common installation paths."
+        ),
+    )
+    p_verify.add_argument(
+        "--json",
+        dest="verify_json",
+        action="store_true",
+        default=False,
+        help=(
+            "Emit the verification result as deterministic JSON "
+            "on stdout. Plain-text output is suppressed when "
+            "--json is supplied."
+        ),
+    )
+    p_verify.add_argument(
+        "--timeout",
+        dest="timeout_seconds",
+        type=int,
+        default=30,
+        help=(
+            "Timeout in seconds for the Blender verification "
+            "process. Default: 30."
+        ),
+    )
+
     return parser
 
 
@@ -627,6 +688,7 @@ def _dispatch(
     dry_run_batch_manifest: Callable = _default_dry_run_batch_manifest,
     dry_run_to_json: Callable = _default_dry_run_to_json,
     load_report: Callable = _default_load_report,
+    verify_blender_runtime: Callable = _default_verify_blender_runtime,
 ) -> int:
     """Dispatch parsed argparse *args* to the matching command handler."""
     if args.command == "validate":
@@ -767,6 +829,17 @@ def _dispatch(
         if getattr(args, "manifest_retries", None) is not None:
             kwargs["retries"] = args.manifest_retries
         return run_batch_manifest(effective, **kwargs)
+    elif args.command == "verify-blender":
+        try:
+            return verify_blender_runtime(
+                stdout=stdout,
+                blender_executable=getattr(args, "blender_executable", None),
+                timeout_seconds=getattr(args, "timeout_seconds", 30),
+                json_output=getattr(args, "verify_json", False),
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            stdout.write(f"error: {exc}\n")
+            return 1
     # argparse rejects unknown commands, so this branch is defensive.
     stdout.write(f"error: unknown command: {args.command!r}\n")
     return 2
@@ -788,6 +861,7 @@ def main(
     dry_run_batch_manifest: Callable = _default_dry_run_batch_manifest,
     dry_run_to_json: Callable = _default_dry_run_to_json,
     load_report: Callable = _default_load_report,
+    verify_blender_runtime: Callable = _default_verify_blender_runtime,
 ) -> int:
     """Programmatic entry point for the TOONFLOW project CLI.
 
@@ -812,6 +886,9 @@ def main(
         run_batch_manifest: Dependency-injection point replacing
             :func:`workflow.manifest.run_batch_manifest`. Used by
             the ``manifest`` subcommand.
+        verify_blender_runtime: Dependency-injection point replacing
+            :func:`workflow.verification.verify_blender_runtime`.
+            Used by the ``verify-blender`` subcommand. PHASE-034.
 
     Returns:
         An integer exit code. ``0`` on success, non-zero on
@@ -856,9 +933,11 @@ def main(
         dry_run_batch_manifest=dry_run_batch_manifest,
         dry_run_to_json=dry_run_to_json,
         load_report=load_report,
+        verify_blender_runtime=verify_blender_runtime,
     )
 
 
 __all__ = (
     "main",
+    "_default_verify_blender_runtime",
 )
