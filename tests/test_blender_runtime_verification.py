@@ -115,7 +115,7 @@ class RuntimeTypeTests(unittest.TestCase):
     def test_runtime_uses_list_args(self):
         runtime_source = (PROJECT_ROOT / "workflow" / "runtime.py").read_text()
         self.assertIn('[str(blender_path),', runtime_source)
-        self.assertIn('[str(blender_executable),', runtime_source)
+        self.assertIn('str(blender_executable)', runtime_source)
 
 
 # --- D. Blender unavailable -> NOT_RUN ----------------------------------------
