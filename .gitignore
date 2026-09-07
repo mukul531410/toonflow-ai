@@ -13,3 +13,6 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Build artifacts (PHASE-036 release packaging)
+dist/
