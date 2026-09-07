@@ -71,6 +71,27 @@ def _default_verify_blender_runtime(
     )
 
 
+def _default_validate_addon_package(manifest):
+    """Delegate to :func:`workflow.packaging.validate_addon_package`."""
+    from .packaging import validate_addon_package
+
+    return validate_addon_package(manifest)
+
+
+def _default_build_addon_zip(manifest, output_path):
+    """Delegate to :func:`workflow.packaging.build_addon_zip`."""
+    from .packaging import build_addon_zip
+
+    return build_addon_zip(manifest, output_path)
+
+
+def _default_addon_package_manifest_default(project_root=None):
+    """Delegate to :func:`workflow.packaging.addon_package_manifest_default`."""
+    from .packaging import addon_package_manifest_default
+
+    return addon_package_manifest_default(project_root=project_root)
+
+
 def _default_run_batch(directory, mode, *, load_project, replay_project,
                       stdout, report_path=None, report_writer=None,
                       include=None, exclude=None, recursive=False,
@@ -534,6 +555,40 @@ def _build_parser():
         ),
     )
 
+    p_package = subparsers.add_parser(
+        "package-addon",
+        help="Build a deterministic ZIP archive of the Blender add-on.",
+        description=(
+            "Validate the TOONFLOW AI add-on source package and "
+            "produce a deterministic, reproducible ZIP archive "
+            "whose root contains the toonflow_ai/ directory. "
+            "This command does NOT install Blender, does NOT "
+            "access the network, does NOT invoke subprocess, "
+            "and does NOT modify the source tree. PHASE-036."
+        ),
+    )
+    p_package.add_argument(
+        "--output",
+        dest="package_output",
+        default=None,
+        help=(
+            "Optional destination path for the produced ZIP. "
+            "When omitted, a path under a default 'dist' "
+            "directory is used."
+        ),
+    )
+    p_package.add_argument(
+        "--json",
+        dest="package_json",
+        action="store_true",
+        default=False,
+        help=(
+            "Emit the build result as deterministic JSON on "
+            "stdout. Plain-text output is suppressed when "
+            "--json is supplied."
+        ),
+    )
+
     return parser
 
 
@@ -685,6 +740,9 @@ def _dispatch(
     dry_run_to_json: Callable = _default_dry_run_to_json,
     load_report: Callable = _default_load_report,
     verify_blender_runtime: Callable = _default_verify_blender_runtime,
+    validate_addon_package: Callable = _default_validate_addon_package,
+    build_addon_zip: Callable = _default_build_addon_zip,
+    addon_package_manifest_default: Callable = _default_addon_package_manifest_default,
 ) -> int:
     """Dispatch parsed argparse *args* to the matching command handler."""
     if args.command == "validate":
@@ -851,6 +909,49 @@ def _dispatch(
         except Exception as exc:  # pragma: no cover - defensive
             stdout.write(f"error: {exc}\n")
             return 1
+    elif args.command == "package-addon":
+        from pathlib import Path
+        from .packaging import build_result_to_json
+        try:
+            manifest = addon_package_manifest_default()
+        except (OSError, ValueError, TypeError) as exc:
+            stdout.write(f"error: {exc}\n")
+            return 1
+        validation = validate_addon_package(manifest)
+        if validation.status != "PASS":
+            for issue in validation.issues:
+                stdout.write(f"error: {issue}\n")
+            return 1
+        requested = getattr(args, "package_output", None)
+        if requested:
+            output_path = Path(requested)
+        else:
+            try:
+                default_root = manifest.source_dir.parent.parent
+                dist_dir = default_root / "dist"
+                output_path = dist_dir / "toonflow_ai.zip"
+            except OSError as exc:
+                stdout.write(f"error: {exc}\n")
+                return 1
+        try:
+            build = build_addon_zip(manifest, output_path)
+        except (OSError, ValueError, TypeError) as exc:
+            stdout.write(f"error: {exc}\n")
+            return 1
+        if build.status != "PASS":
+            stdout.write(f"error: {build.issue}\n")
+            return 1
+        if getattr(args, "package_json", False):
+            stdout.write(build_result_to_json(build))
+        else:
+            lines = [
+                f"Add-on packaging: {build.status}",
+                f"Archive: {build.archive_path}",
+                f"Bytes: {build.archive_bytes}",
+                f"Files: {build.file_count}",
+            ]
+            stdout.write("\n".join(lines) + "\n")
+        return 0
     # argparse rejects unknown commands, so this branch is defensive.
     stdout.write(f"error: unknown command: {args.command!r}\n")
     return 2
@@ -873,6 +974,9 @@ def main(
     dry_run_to_json: Callable = _default_dry_run_to_json,
     load_report: Callable = _default_load_report,
     verify_blender_runtime: Callable = _default_verify_blender_runtime,
+    validate_addon_package: Callable = _default_validate_addon_package,
+    build_addon_zip: Callable = _default_build_addon_zip,
+    addon_package_manifest_default: Callable = _default_addon_package_manifest_default,
 ) -> int:
     """Programmatic entry point for the TOONFLOW project CLI.
 
@@ -945,6 +1049,9 @@ def main(
         dry_run_to_json=dry_run_to_json,
         load_report=load_report,
         verify_blender_runtime=verify_blender_runtime,
+        validate_addon_package=validate_addon_package,
+        build_addon_zip=build_addon_zip,
+        addon_package_manifest_default=addon_package_manifest_default,
     )
 
 

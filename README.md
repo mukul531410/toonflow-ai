@@ -45,12 +45,15 @@ The shared documentation in `docs/` is the project’s primary source of truth f
 - [Batch Operational Summary](docs/BATCH_OPERATIONAL_SUMMARY.md)
 - [Batch Result Export](docs/BATCH_RESULT_EXPORT.md)
 - [Batch Result Validation](docs/BATCH_RESULT_VALIDATION.md)
+- [Runtime Readiness Audit](docs/RUNTIME_READINESS_AUDIT.md)
+- [Blender Runtime Verification](docs/BLENDER_RUNTIME_VERIFICATION.md)
+- [Release Packaging](docs/RELEASE_PACKAGING.md)
 
 ## Current status
 
-`TOONFLOW-PHASE-032 — Batch Result Consistency Validation Foundation` is complete.
-`TOONFLOW-PHASE-033 — Release / Runtime Readiness Audit Foundation` is complete.
-`TOONFLOW-PHASE-034` is reserved as a placeholder. Future phases will be defined by the project owner.
+`TOONFLOW-PHASE-035 — Verification Boundary Hardening & Project State Consistency` is complete.
+`TOONFLOW-PHASE-036 — Release Packaging & Repository Readiness Foundation` is complete.
+Future phases will be defined by the project owner.
 
 ## Initial layout
 

@@ -2,10 +2,10 @@
 
 ## Current task
 
-- **ID:** TOONFLOW-PHASE-035
-- **Name:** Verification Boundary Hardening & Project State Consistency
+- **ID:** TOONFLOW-PHASE-036
+- **Name:** Release Packaging & Repository Readiness Foundation
 - **Status:** COMPLETED
-- **Scope:** Complete verification/runtime boundary hardening by removing subprocess from verification.py, adding dependency injection, updating CLI, removing backup file, adding comprehensive tests, and ensuring documentation consistency.
+- **Scope:** Establish a deterministic, inspectable add-on packaging layer that validates the Blender add-on source package, produces a reproducible ZIP archive, and exposes a `package-addon` CLI subcommand. The packaging layer is bpy-free, subprocess-free, network-free, and does not modify the source tree.
 
 ## Completed tasks
 
@@ -47,3 +47,4 @@
 | TOONFLOW-PHASE-033 | Release / Runtime Readiness Audit Foundation | COMPLETED |
 | TOONFLOW-PHASE-034 | Blender Runtime Verification Foundation | COMPLETED |
 | TOONFLOW-PHASE-035 | Verification Boundary Hardening & Project State Consistency | COMPLETED |
+| TOONFLOW-PHASE-036 | Release Packaging & Repository Readiness Foundation | COMPLETED |
