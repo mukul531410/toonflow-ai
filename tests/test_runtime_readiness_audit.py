@@ -47,6 +47,19 @@ from workflow.audit import (  # noqa: E402
 )
 
 
+def _ast_all_imports(source: str):
+    tree = ast.parse(source)
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                out.append(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                out.append(node.module)
+    return out
+
+
 # --- Result model immutability ------------------------------------------------
 
 
@@ -58,7 +71,7 @@ class AuditModelImmutabilityTests(unittest.TestCase):
             status=AuditStatus.IMPLEMENTED,
             message="Test finding",
         )
-        self.assertTrue(finding.__dataclass_fields__["identifier"].frozen)
+        # Test that fields cannot be modified after creation
         with self.assertRaises(AttributeError):
             finding.identifier = "modified"
 
@@ -84,7 +97,7 @@ class AuditModelImmutabilityTests(unittest.TestCase):
             not_applicable=0,
             release_blocker_count=0,
         )
-        self.assertTrue(summary.__dataclass_fields__["total_findings"].frozen)
+        # Test that fields cannot be modified after creation
         with self.assertRaises(AttributeError):
             summary.total_findings = 2
 
@@ -106,7 +119,7 @@ class AuditModelImmutabilityTests(unittest.TestCase):
             release_blocker_count=0,
         )
         audit = RuntimeReadinessAudit(findings=(finding,), summary=summary)
-        self.assertTrue(audit.__dataclass_fields__["findings"].frozen)
+        # Test that fields cannot be modified after creation
         with self.assertRaises(AttributeError):
             audit.findings = ()
 
@@ -375,7 +388,7 @@ class DocumentationConsistencyTests(unittest.TestCase):
     def test_documentation_architecture_md(self):
         audit = collect_repository_audit()
         finding = next(
-            (f for f in audit.findings if f.identifier == "doc_architecture_md"),
+            (f for f in audit.findings if f.identifier == "doc_architecture"),
             None,
         )
         self.assertIsNotNone(finding)
@@ -384,7 +397,7 @@ class DocumentationConsistencyTests(unittest.TestCase):
     def test_documentation_roadmap_md(self):
         audit = collect_repository_audit()
         finding = next(
-            (f for f in audit.findings if f.identifier == "doc_roadmap_md"),
+            (f for f in audit.findings if f.identifier == "doc_roadmap"),
             None,
         )
         self.assertIsNotNone(finding)
@@ -393,7 +406,7 @@ class DocumentationConsistencyTests(unittest.TestCase):
     def test_documentation_tasks_md(self):
         audit = collect_repository_audit()
         finding = next(
-            (f for f in audit.findings if f.identifier == "doc_tasks_md"),
+            (f for f in audit.findings if f.identifier == "doc_tasks"),
             None,
         )
         self.assertIsNotNone(finding)
@@ -578,9 +591,7 @@ class NoSourceMutationTests(unittest.TestCase):
 
 class NoSubprocessNetworkTests(unittest.TestCase):
     def test_audit_module_no_subprocess_imports(self):
-        import ast
         audit_source = (Path(__file__).resolve().parent.parent / "workflow" / "audit.py").read_text()
-        tree = ast.parse(audit_source)
         imports = _ast_all_imports(audit_source)
         self.assertNotIn("subprocess", imports)
         self.assertNotIn("multiprocessing", imports)
@@ -593,19 +604,6 @@ class NoSubprocessNetworkTests(unittest.TestCase):
         audit_source = (Path(__file__).resolve().parent.parent / "workflow" / "audit.py").read_text()
         imports = _ast_all_imports(audit_source)
         self.assertNotIn("bpy", imports)
-
-
-def _ast_all_imports(source):
-    tree = ast.parse(source)
-    out = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                out.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                out.append(node.module)
-    return out
 
 
 # --- Existing architecture guards remain valid -------------------------------

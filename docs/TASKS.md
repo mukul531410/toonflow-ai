@@ -4,7 +4,7 @@
 
 - **ID:** TOONFLOW-PHASE-035
 - **Name:** Verification Boundary Hardening & Project State Consistency
-- **Status:** IN_PROGRESS
+- **Status:** COMPLETED
 - **Scope:** Complete verification/runtime boundary hardening by removing subprocess from verification.py, adding dependency injection, updating CLI, removing backup file, adding comprehensive tests, and ensuring documentation consistency.
 
 ## Completed tasks
@@ -46,9 +46,4 @@
 | TOONFLOW-PHASE-032 | Batch Result Consistency Validation Foundation | COMPLETED |
 | TOONFLOW-PHASE-033 | Release / Runtime Readiness Audit Foundation | COMPLETED |
 | TOONFLOW-PHASE-034 | Blender Runtime Verification Foundation | COMPLETED |
-
-## Future tasks — not started
-
-| ID | Task | Status |
-| --- | --- | --- |
-| TOONFLOW-PHASE-034 | Blender Runtime Verification Foundation | COMPLETED |
+| TOONFLOW-PHASE-035 | Verification Boundary Hardening & Project State Consistency | COMPLETED |

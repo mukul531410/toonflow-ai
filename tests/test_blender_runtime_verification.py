@@ -27,9 +27,8 @@ import ast
 import json
 import sys
 import unittest
-from dataclasses import FrozenInstanceError
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -57,6 +56,11 @@ def _ast_all_imports(source: str):
             if node.module:
                 out.append(node.module)
     return out
+
+
+def _existing_blender() -> Path:
+    """Return a path that exists on this system so the runtime is invoked."""
+    return Path(sys.executable)
 
 
 # --- A. verification.py has no direct subprocess import -------------------------
@@ -107,10 +111,15 @@ class RuntimeBoundaryTests(unittest.TestCase):
 
 
 class RuntimeTypeTests(unittest.TestCase):
-    def test_runtime_no_shell_true(self):
+    def test_runtime_no_shell_kwarg(self):
+        """Ensure shell=True is not passed to any subprocess call."""
         runtime_source = (PROJECT_ROOT / "workflow" / "runtime.py").read_text()
-        self.assertNotIn("shell=True", runtime_source)
-        self.assertNotIn("shell = True", runtime_source)
+        tree = ast.parse(runtime_source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                for kw in node.keywords:
+                    if kw.arg == "shell":
+                        self.fail("shell kwarg found in subprocess call")
 
     def test_runtime_uses_list_args(self):
         runtime_source = (PROJECT_ROOT / "workflow" / "runtime.py").read_text()
@@ -175,7 +184,7 @@ class MockedSuccessTests(unittest.TestCase):
             }
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.PASSED)
@@ -196,7 +205,7 @@ class MockedSuccessTests(unittest.TestCase):
             }
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.boundary_achieved, VerificationBoundary.BLENDER_RUNTIME_VERIFICATION)
@@ -216,11 +225,11 @@ class MockedFailureTests(unittest.TestCase):
             }
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
-        self.assertFalse(result.verification_attempted or result.verification_attempted)
+        self.assertTrue(result.verification_attempted)
 
     def test_unregistration_error_returns_failed(self):
         def mock_executor(bpy_path: Path, timeout: int) -> Tuple[bool, dict]:
@@ -236,10 +245,11 @@ class MockedFailureTests(unittest.TestCase):
             }
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
+        self.assertTrue(result.verification_attempted)
 
     def test_eager_bpy_import_warning_returns_failed(self):
         def mock_executor(bpy_path: Path, timeout: int) -> Tuple[bool, dict]:
@@ -251,20 +261,22 @@ class MockedFailureTests(unittest.TestCase):
             }
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
+        self.assertTrue(result.verification_attempted)
 
     def test_blender_process_failed_returns_failed(self):
         def mock_executor(bpy_path: Path, timeout: int) -> Tuple[bool, dict]:
             return False, {"error": "Blender process failed to start"}
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
+        self.assertTrue(result.verification_attempted)
 
 
 # --- H. timeout -> deterministic failure ------------------------------------
@@ -276,18 +288,20 @@ class TimeoutTests(unittest.TestCase):
             return False, {"error": f"Blender verification timed out after {timeout} seconds"}
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
+            contract=BlenderVerificationContract(timeout_seconds=15),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
+        self.assertTrue(result.verification_attempted)
 
-    def test_timeout_not_run_on_process_failure(self):
+    def test_timeout_in_details_preserved(self):
         def mock_executor(bpy_path: Path, timeout: int) -> Tuple[bool, dict]:
-            return False, {"timeout": "30"}
+            return False, {"error": "timeout", "timeout": 30}
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
-            timeout_seconds=15,
+            blender_executable=_existing_blender(),
+            contract=BlenderVerificationContract(timeout_seconds=30),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
@@ -302,20 +316,22 @@ class MalformedOutputTests(unittest.TestCase):
             return True, {"success": "not_a_bool", "info": {}}
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
+        self.assertTrue(result.verification_attempted)
 
     def test_missing_success_key_returns_failed(self):
         def mock_executor(bpy_path: Path, timeout: int) -> Tuple[bool, dict]:
             return True, {"info": {}}
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
+        self.assertTrue(result.verification_attempted)
 
 
 # --- J. non-zero exit -> deterministic failure -------------------------------
@@ -331,26 +347,28 @@ class NonZeroExitTests(unittest.TestCase):
             }
 
         result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertEqual(result.status, VerificationStatus.FAILED)
+        self.assertTrue(result.verification_attempted)
 
 
 # --- K. invalid timeout rejected ----------------------------------------------
 
 
 class InvalidTimeoutTests(unittest.TestCase):
-    def test_zero_timeout_performs_static_validation_only(self):
-        result = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
-            contract=BlenderVerificationContract(timeout_seconds=1),
-        )
-        self.assertIn(result.status, (VerificationStatus.NOT_RUN, VerificationStatus.PASSED))
+    def test_positive_timeout_contract_accepted(self):
+        contract = BlenderVerificationContract(timeout_seconds=1)
+        self.assertEqual(contract.timeout_seconds, 1)
 
     def test_negative_timeout_contract_rejected(self):
         with self.assertRaises(ValueError):
             BlenderVerificationContract(timeout_seconds=-1)
+
+    def test_zero_timeout_contract_rejected(self):
+        with self.assertRaises(ValueError):
+            BlenderVerificationContract(timeout_seconds=0)
 
 
 # --- L. deterministic dict output --------------------------------------------
@@ -454,11 +472,10 @@ class ImmutableResultTests(unittest.TestCase):
             message="Test",
             verification_attempted=True,
         )
-        self.assertTrue(result.__dataclass_fields__["status"].frozen)
         with self.assertRaises(AttributeError):
             result.status = VerificationStatus.FAILED
 
-    def test_result_details_is_frozen(self):
+    def test_result_details_immutable_via_dataclass(self):
         result = BlenderRuntimeVerificationResult(
             status=VerificationStatus.PASSED,
             boundary_achieved=VerificationBoundary.BLENDER_RUNTIME_VERIFICATION,
@@ -466,7 +483,8 @@ class ImmutableResultTests(unittest.TestCase):
             details={"key": "value"},
             verification_attempted=True,
         )
-        self.assertTrue(result.__dataclass_fields__["details"].frozen)
+        with self.assertRaises(AttributeError):
+            result.details = {}
 
     def test_verify_blender_runtime_returns_new_result(self):
         def mock_executor(bpy_path: Path, timeout: int) -> Tuple[bool, dict]:
@@ -477,11 +495,11 @@ class ImmutableResultTests(unittest.TestCase):
             }
 
         result1 = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         result2 = verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
+            blender_executable=_existing_blender(),
             runtime_executor=mock_executor,
         )
         self.assertIsNot(result1, result2)
@@ -496,23 +514,37 @@ class DependencyInjectionTests(unittest.TestCase):
 
         def mock_executor(bpy_path: Path, timeout: int) -> Tuple[bool, dict]:
             called_with.append((bpy_path, timeout))
-            return True, {"success": True, "info": {"import_success": True}, "errors": []}
+            return True, {
+                "success": True,
+                "info": {
+                    "import_success": True,
+                    "registration_success": True,
+                    "unregistration_success": True,
+                    "no_eager_bpy_imports": True,
+                },
+                "errors": [],
+                "warnings": [],
+            }
 
         result = verify_blender_runtime(
-            blender_executable=Path("/custom/blender"),
-            timeout_seconds=60,
+            blender_executable=_existing_blender(),
+            contract=BlenderVerificationContract(timeout_seconds=60),
             runtime_executor=mock_executor,
         )
         self.assertEqual(len(called_with), 1)
-        self.assertEqual(called_with[0][0], Path("/custom/blender"))
+        self.assertEqual(called_with[0][0], _existing_blender())
         self.assertEqual(called_with[0][1], 60)
         self.assertEqual(result.status, VerificationStatus.PASSED)
 
-    def test_default_runtime_executor_uses_workflow_runtime(self):
-        verify_blender_runtime(
-            blender_executable=Path("/fake/blender"),
-            runtime_executor=lambda p, t: (True, {"success": True, "info": {"import_success": True}, "errors": []}),
+    def test_default_runtime_executor_used_when_none(self):
+        # When no runtime_executor provided, the default workflow.runtime executor is used.
+        # The default executor will fail (no JSON output from sys.executable) but should not crash.
+        result = verify_blender_runtime(
+            blender_executable=_existing_blender(),
         )
+        # The default executor calls blender --version which sys.executable does not understand.
+        # So we get FAILED or NOT_RUN depending on how the default handles the output.
+        self.assertIn(result.status, (VerificationStatus.FAILED, VerificationStatus.NOT_RUN))
 
 
 # --- P. CLI verify-blender works --------------------------------------------
@@ -594,11 +626,9 @@ class NoSourceMutationTests(unittest.TestCase):
 class NoNetworkBehaviorTests(unittest.TestCase):
     def test_verification_no_requests_import(self):
         verification_source = (PROJECT_ROOT / "workflow" / "verification.py").read_text()
-        sources = [verification_source]
-        for source in sources:
-            imports = _ast_all_imports(source)
-            self.assertNotIn("requests", imports)
-            self.assertNotIn("urllib.request", imports)
+        imports = _ast_all_imports(verification_source)
+        self.assertNotIn("requests", imports)
+        self.assertNotIn("urllib.request", imports)
 
     def test_verification_no_subprocess_module_used(self):
         verification_source = (PROJECT_ROOT / "workflow" / "verification.py").read_text()
@@ -631,18 +661,12 @@ class ExistingArchitectureGuardsTests(unittest.TestCase):
                     f"forbidden bpy import in workflow: {name}",
                 )
 
-
-def _ast_all_imports(source: str):
-    tree = ast.parse(source)
-    out = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                out.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                out.append(node.module)
-    return out
+    def test_no_backup_file_artifact(self):
+        backup = PROJECT_ROOT / "workflow" / "verification.py.backup"
+        self.assertFalse(
+            backup.exists(),
+            "verification.py.backup must not exist in the repository",
+        )
 
 
 if __name__ == "__main__":
