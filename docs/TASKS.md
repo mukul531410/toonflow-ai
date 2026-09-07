@@ -2,10 +2,10 @@
 
 ## Current task
 
-- **ID:** TOONFLOW-PHASE-032
-- **Name:** Batch Result Consistency Validation Foundation
-- **Status:** COMPLETED
-- **Scope:** Add pure deterministic validation for batch project results, operational summaries, dry-run invariants, and BatchResultExport consistency without changing execution, BatchReport, or BatchManifest semantics.
+- **ID:** TOONFLOW-PHASE-035
+- **Name:** Verification Boundary Hardening & Project State Consistency
+- **Status:** IN_PROGRESS
+- **Scope:** Complete verification/runtime boundary hardening by removing subprocess from verification.py, adding dependency injection, updating CLI, removing backup file, adding comprehensive tests, and ensuring documentation consistency.
 
 ## Completed tasks
 

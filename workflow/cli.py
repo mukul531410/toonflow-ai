@@ -59,19 +59,15 @@ def _default_replay_project(project, *, workflow_callable=None):
 
 def _default_verify_blender_runtime(
     *,
-    stdout,
     blender_executable=None,
     timeout_seconds=30,
-    json_output=False,
 ):
     """Delegate to :func:`workflow.verification.verify_blender_runtime`."""
     from .verification import verify_blender_runtime
 
     return verify_blender_runtime(
-        stdout=stdout,
         blender_executable=blender_executable,
         timeout_seconds=timeout_seconds,
-        json_output=json_output,
     )
 
 
@@ -831,12 +827,27 @@ def _dispatch(
         return run_batch_manifest(effective, **kwargs)
     elif args.command == "verify-blender":
         try:
-            return verify_blender_runtime(
-                stdout=stdout,
+            result = verify_blender_runtime(
                 blender_executable=getattr(args, "blender_executable", None),
                 timeout_seconds=getattr(args, "timeout_seconds", 30),
-                json_output=getattr(args, "verify_json", False),
             )
+            if getattr(args, "verify_json", False):
+                from .verification import blender_verification_to_json
+                stdout.write(blender_verification_to_json(result))
+            else:
+                lines = [
+                    f"Blender Runtime Verification: {result.status}",
+                    f"Boundary: {result.boundary_achieved}",
+                    f"Message: {result.message}",
+                ]
+                if result.blender_version:
+                    lines.append(f"Blender Version: {result.blender_version}")
+                if result.verification_attempted:
+                    lines.append("Verification Attempted: Yes")
+                else:
+                    lines.append("Verification Attempted: No")
+                stdout.write("\n".join(lines) + "\n")
+            return 0 if result.status == "PASSED" else 1
         except Exception as exc:  # pragma: no cover - defensive
             stdout.write(f"error: {exc}\n")
             return 1

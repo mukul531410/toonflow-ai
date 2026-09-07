@@ -131,6 +131,15 @@ from .shots import (
     Shot,
     create_and_render_shots,
 )
+from .verification import (
+    BlenderRuntimeVerificationResult,
+    BlenderVerificationContract,
+    VerificationBoundary,
+    VerificationStatus,
+    blender_verification_to_dict,
+    blender_verification_to_json,
+    verify_blender_runtime,
+)
 
 __all__ = (
     "create_and_render_scene",
@@ -172,7 +181,14 @@ __all__ = (
     "RuntimeReadinessAudit",
     "audit_finding_to_dict",
     "audit_summary_to_dict",
-    "collect_repository_audit",
     "runtime_readiness_audit_to_dict",
     "runtime_readiness_audit_to_json",
+    "collect_repository_audit",
+    "BlenderRuntimeVerificationResult",
+    "BlenderVerificationContract",
+    "VerificationBoundary",
+    "VerificationStatus",
+    "blender_verification_to_dict",
+    "blender_verification_to_json",
+    "verify_blender_runtime",
 )
