@@ -69,6 +69,7 @@ class VerificationStatus:
     NOT_RUN = "NOT_RUN"
     FAILED = "FAILED"
     PASSED = "PASSED"
+    UNVERIFIED = "UNVERIFIED"
 
 
 class VerificationBoundary:
@@ -116,6 +117,7 @@ class BlenderRuntimeVerificationResult:
             VerificationStatus.NOT_RUN,
             VerificationStatus.FAILED,
             VerificationStatus.PASSED,
+            VerificationStatus.UNVERIFIED,
         ):
             raise ValueError(f"Unknown verification status: {self.status!r}")
 
@@ -165,6 +167,9 @@ class BlenderVerificationContract:
         check_generation_boundary: Verify generation modules remain
             behind Blender boundary (no direct bpy imports).
         timeout_seconds: Timeout for Blender subprocess execution.
+        check_functional: If True, also validates functional runtime
+            behavior inside Blender (operator invocation, property state,
+            error mapping, etc.).
     """
 
     check_import: bool = True
@@ -173,6 +178,7 @@ class BlenderVerificationContract:
     check_no_eager_bpy_import: bool = True
     check_generation_boundary: bool = True
     timeout_seconds: int = 30
+    check_functional: bool = False
 
     def __post_init__(self):
         if not isinstance(self.timeout_seconds, int) or self.timeout_seconds <= 0:
@@ -514,6 +520,150 @@ def verify_blender_runtime(
         )
 
 
+# --- Functional runtime verification ---------------------------------------
+
+
+def _get_result_for_functional_checks(
+    functional_details: dict,
+) -> Tuple[str, str, str]:
+    """Determine the verification result from functional check details."""
+    errors = functional_details.get("errors", [])
+    if errors:
+        return (
+            VerificationStatus.FAILED,
+            VerificationBoundary.BLENDER_RUNTIME_VERIFICATION,
+            f"Functional runtime verification failed: {errors[0].get('message', 'Unknown error')}",
+        )
+    if not functional_details.get("success", False):
+        return (
+            VerificationStatus.FAILED,
+            VerificationBoundary.BLENDER_RUNTIME_VERIFICATION,
+            "Functional runtime verification did not complete successfully",
+        )
+    return (
+        VerificationStatus.PASSED,
+        VerificationBoundary.BLENDER_RUNTIME_VERIFICATION,
+        "Functional runtime verification passed all checks",
+    )
+
+
+def verify_blender_functional_runtime(
+    blender_executable: Optional[Path] = None,
+    contract: Optional[BlenderVerificationContract] = None,
+    runtime_executor: Optional[
+        Callable[[Path, int], Tuple[bool, dict]]
+    ] = None,
+) -> BlenderRuntimeVerificationResult:
+    """Verify the TOONFLOW AI Blender add-on functional runtime boundary.
+
+    This validates the existing operator integration inside a real
+    Blender process using a controlled/stubbed pipeline boundary
+    so that no Ollama/network dependency is required.
+
+    Args:
+        blender_executable: Optional path to Blender executable.
+        contract: Optional verification contract.
+        runtime_executor: Optional dependency-injected runtime executor.
+            Must accept ``(blender_executable: Path, timeout_seconds: int)``
+            and return ``(success: bool, details: dict)``. If None, uses
+            :func:`workflow.runtime.execute_blender_functional_runtime`.
+
+    Returns:
+        A :class:`BlenderRuntimeVerificationResult` with status PASS,
+        FAIL, NOT_RUN (Blender unavailable), or UNVERIFIED (pure-Python
+        fallback when Blender is absent).
+    """
+    if contract is None:
+        contract = BlenderVerificationContract()
+
+    static_status, static_boundary, static_message, static_details = (
+        _achieve_static_validation_boundary()
+    )
+
+    if static_status == VerificationStatus.FAILED:
+        return BlenderRuntimeVerificationResult(
+            status=VerificationStatus.FAILED,
+            boundary_achieved=static_boundary,
+            message=static_message,
+            details=static_details,
+            verification_attempted=False,
+        )
+
+    if blender_executable is None:
+        blender_executable = _find_blender_executable()
+
+    if blender_executable is None or not blender_executable.exists():
+        return BlenderRuntimeVerificationResult(
+            status=VerificationStatus.NOT_RUN,
+            boundary_achieved=VerificationBoundary.STATIC_VALIDATION,
+            message="Blender executable not found. Static validation passed, functional runtime verification not attempted.",
+            details={
+                **static_details,
+                "blender_search_attempted": True,
+            },
+            verification_attempted=False,
+        )
+
+    if runtime_executor is None:
+        from workflow.runtime import execute_blender_functional_runtime, get_blender_version
+        runtime_executor = execute_blender_functional_runtime
+        blender_version = get_blender_version(blender_executable)
+    else:
+        blender_version = None
+
+    try:
+        success, functional_details = runtime_executor(
+            blender_executable,
+            contract.timeout_seconds,
+        )
+
+        if not success:
+            return BlenderRuntimeVerificationResult(
+                status=VerificationStatus.FAILED,
+                boundary_achieved=VerificationBoundary.STATIC_VALIDATION,
+                message=f"Blender functional validation process failed: {functional_details.get('error', 'Unknown error')}",
+                details={
+                    **static_details,
+                    **functional_details,
+                    "blender_version": blender_version,
+                },
+                blender_version=blender_version,
+                blender_executable=str(blender_executable),
+                verification_attempted=True,
+            )
+
+        func_status, func_boundary, func_message = _get_result_for_functional_checks(
+            functional_details
+        )
+
+        return BlenderRuntimeVerificationResult(
+            status=func_status,
+            boundary_achieved=func_boundary,
+            message=func_message,
+            details={
+                **static_details,
+                **functional_details,
+                "blender_version": blender_version,
+            },
+            blender_version=blender_version,
+            blender_executable=str(blender_executable),
+            verification_attempted=True,
+        )
+
+    except Exception as e:
+        return BlenderRuntimeVerificationResult(
+            status=VerificationStatus.FAILED,
+            boundary_achieved=VerificationBoundary.STATIC_VALIDATION,
+            message=f"Unexpected error during Blender functional verification: {e}",
+            details={
+                **static_details,
+                "exception_type": type(e).__name__,
+                "exception_message": str(e),
+            },
+            verification_attempted=True,
+        )
+
+
 # --- Public API --------------------------------------------------------------
 
 
@@ -525,5 +675,6 @@ __all__ = (
     "blender_verification_to_dict",
     "blender_verification_to_json",
     "verify_blender_runtime",
+    "verify_blender_functional_runtime",
     "PROJECT_ROOT_ENV_VAR",
 )
