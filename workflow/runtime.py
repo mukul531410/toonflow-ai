@@ -138,18 +138,21 @@ def main():
         "info": {},
     }
 
-    # Set up early return for subprocess errors
     def set_error_and_exit(err_type, message):
         result["errors"].append({
             "type": err_type,
             "message": message,
-            "traceback": traceback.format_exc()
+            "traceback": traceback.format_exc(),
         })
         print(json.dumps(result))
         return
 
+    # Track whether pipeline stub was actually invoked
+    _stub_called = {"count": 0, "last_concept": None}
+    _original_create_scene_from_concept = None
+
     try:
-        # Step 1: Import Blender and add-on
+        # Step 1: Import Blender
         try:
             import bpy
             result["info"]["bpy_available"] = True
@@ -157,6 +160,42 @@ def main():
             set_error_and_exit("ImportError", f"bpy not available: {e}")
             return
 
+        # Step 2: Apply pipeline stub BEFORE importing toonflow_ai
+        # so that operator module binds the stub at import time
+        try:
+            import pipeline
+            from pipeline.api import SceneCreationResult
+            from toonflow_ai.generation.api import GenerationResult
+
+            _original_create_scene_from_concept = pipeline.create_scene_from_concept
+
+            def _stub_create_scene_from_concept(concept):
+                _stub_called["count"] += 1
+                _stub_called["last_concept"] = concept
+                if not concept or not concept.strip():
+                    from ai.errors import InvalidConceptError
+                    raise InvalidConceptError("Concept must not be empty.")
+                gen_result = GenerationResult(
+                    collection_name="TOONFLOW",
+                    environment_id="env_test",
+                    environment_object_names=["Cube", "Plane", "Light"],
+                    character_ids=["char_test"],
+                    character_object_names=["Character"],
+                )
+                return SceneCreationResult(
+                    scene_plan={},
+                    generation_result=gen_result,
+                )
+
+            pipeline.create_scene_from_concept = _stub_create_scene_from_concept
+            result["info"]["pipeline_stub_applied"] = True
+        except Exception as e:
+            result["warnings"].append({
+                "type": "PipelineStubWarning",
+                "message": f"Could not apply pipeline stub: {e}",
+            })
+
+        # Step 3: Import add-on
         try:
             import toonflow_ai
             result["info"]["addon_import_success"] = True
@@ -164,82 +203,25 @@ def main():
             set_error_and_exit("ImportError", f"Failed to import toonflow_ai: {e}")
             return
 
-        # Step 2: Set up pipeline stub for functional validation
-        # This avoids Ollama/network dependency and generated Python execution
-        try:
-            import pipeline
-            # Store original function for restoration
-            _original_create_scene_from_concept = getattr(pipeline, "create_scene_from_concept", None)
-            
-            def _stub_create_scene_from_concept(concept):
-                """Stub for pipeline.create_scene_from_concept that returns deterministic results."""
-                if not concept or not concept.strip():
-                    raise InvalidConceptError("Concept must not be empty.")
-                
-                # Return deterministic success for valid concept
-                from pipeline import WorkflowResult
-                from generation_result import GenerationResult
-                
-                # Mock successful generation result
-                generation_result = GenerationResult(
-                    environment_object_names=["Cube", "Plane", "Light"],
-                    character_object_names=["Character"],
-                    animation_data={},
-                    lip_sync_data={}
-                )
-                
-                return WorkflowResult(
-                    success=True,
-                    generation_result=generation_result,
-                    scene_plan=None,  # Not needed for functional validation
-                    asset_registry_snapshot={}
-                )
-            
-            # Apply stub
-            pipeline.create_scene_from_concept = _stub_create_scene_from_concept
-            result["info"]["pipeline_stub_applied"] = True
-            
-        except Exception as e:
-            # If we can't patch pipeline, we'll note it but continue
-            result["warnings"].append({
-                "type": "PipelineStubWarning",
-                "message": f"Could not apply pipeline stub: {e}",
-            })
-
-        # Import errors we need for validation
-        try:
-            from ai.errors import InvalidConceptError
-        except ImportError:
-            # Fallback for environments without full AI stack
-            class InvalidConceptError(Exception):
-                pass
-
-        # Step 3: Register the add-on
+        # Step 4: Register the add-on
         try:
             toonflow_ai.register()
             result["info"]["registration_success"] = True
         except Exception as e:
             set_error_and_exit("RuntimeError", f"Add-on registration failed: {e}")
-            # Restore pipeline function if we modified it
-            if '_original_create_scene_from_concept' in locals():
-                pipeline.create_scene_from_concept = _original_create_scene_from_concept
             return
 
-        # Step 4: Validate registration state
+        # Step 5: Validate registration state
         try:
-            # Check Scene.toonflow property exists
             scene = bpy.context.scene
             if hasattr(scene, "toonflow"):
                 result["info"]["scene_toonflow_exists"] = True
-                toonflow_props = scene.toonflow
-                result["info"]["toonflow_properties_type"] = type(toonflow_props).__name__
             else:
                 result["errors"].append({
                     "type": "AttributeError",
                     "message": "Scene.toonflow property not found after registration",
                 })
-            
-            # Check operator is registered
+
             if hasattr(bpy.types, "TOONFLOW_OT_generate_scene"):
                 result["info"]["operator_registered"] = True
             else:
@@ -247,8 +229,7 @@ def main():
                     "type": "AttributeError",
                     "message": "TOONFLOW_OT_generate_scene operator not registered",
                 })
-                
-            # Check panel is registered  
+
             if hasattr(bpy.types, "TOONFLOW_PT_panel"):
                 result["info"]["panel_registered"] = True
             else:
@@ -260,104 +241,158 @@ def main():
             result["errors"].append({
                 "type": "RuntimeError",
                 "message": f"Registration state validation failed: {e}",
-                "traceback": traceback.format_exc()
+                "traceback": traceback.format_exc(),
             })
 
-        # Step 5: Test operator behavior if registration succeeded
+        # Step 6: Test operator behavior if registration succeeded
         if result["info"].get("registration_success", False) and len(result["errors"]) == 0:
             try:
-                scene = bpy.context.scene
-                toonflow_props = scene.toonflow
-                
-                # Test H: operator with empty concept returns CANCELLED
-                toonflow_props.concept = ""  # Empty concept
-                try:
-                    # Import and execute operator
-                    import addon.toonflow_ai.operator as op_module
-                    if hasattr(op_module, "TOONFLOW_OT_generate_scene"):
-                        op_class = op_module.TOONFLOW_OT_generate_scene
-                        # Create operator instance and execute
-                        # Note: In real Blender, we'd use bpy.ops, but for validation we test the logic
-                        # We'll test the core validation by calling the execute method directly on a mock context
-                        # For simplicity in this validation script, we test the properties and logic
-                        
-                        # Check that concept validation works
-                        if not toonflow_props.concept or not toonflow_props.concept.strip():
-                            result["info"]["operator_empty_concept_handled"] = True
-                        else:
-                            result["warnings"].append({
-                                "type": "LogicWarning",
-                                "message": "Empty concept validation may not work as expected",
-                            })
-                    else:
-                        result["errors"].append({
-                            "type": "AttributeError",
-                            "message": "TOONFLOW_OT_generate_scene operator class not found",
-                        })
-                except Exception as e:
+                toonflow_props = bpy.context.scene.toonflow
+
+                # --- H: empty concept returns CANCELLED ---
+                _stub_called["count"] = 0
+                _stub_called["last_concept"] = None
+                toonflow_props.concept = ""
+                op_result = bpy.ops.toonflow.generate_scene()
+                if "CANCELLED" in op_result:
+                    result["info"]["operator_empty_concept_cancelled"] = True
+                else:
                     result["errors"].append({
-                        "type": "RuntimeError",
-                        "message": f"Operator empty concept test failed: {e}",
+                        "type": "OperatorError",
+                        "message": f"Empty concept did not return CANCELLED, got: {op_result}",
                     })
-                
-                # Test I: operator with valid concept using stubbed pipeline
+                if _stub_called["count"] == 0:
+                    result["info"]["pipeline_not_invoked_empty_concept"] = True
+                else:
+                    result["errors"].append({
+                        "type": "StubInvocationError",
+                        "message": "Pipeline stub was called for empty concept",
+                    })
+                if toonflow_props.last_status == "Concept must not be empty.":
+                    result["info"]["empty_concept_status_updated"] = True
+                else:
+                    result["errors"].append({
+                        "type": "StatusError",
+                        "message": f"Expected 'Concept must not be empty.', got: {toonflow_props.last_status!r}",
+                    })
+
+                # --- I: valid concept returns FINISHED ---
+                _stub_called["count"] = 0
+                _stub_called["last_concept"] = None
                 toonflow_props.concept = "A simple test concept"
-                try:
-                    # With our stub, this should succeed
-                    # We'd normally call bpy.ops.toonflow.generate_scene() but we'll check the stub was applied
-                    if result["info"].get("pipeline_stub_applied", False):
-                        result["info"]["operator_valid_concept_path_tested"] = True
-                        result["info"]["last_status_updated"] = bool(getattr(toonflow_props, "last_status", ""))
-                    else:
-                        result["warnings"].append({
-                            "type": "PipelineStubWarning", 
-                            "message": "Pipeline stub not applied, valid concept path not fully tested",
-                        })
-                except Exception as e:
+                op_result = bpy.ops.toonflow.generate_scene()
+                if "FINISHED" in op_result:
+                    result["info"]["operator_valid_concept_finished"] = True
+                else:
                     result["errors"].append({
-                        "type": "RuntimeError",
-                        "message": f"Operator valid concept test failed: {e}",
+                        "type": "OperatorError",
+                        "message": f"Valid concept did not return FINISHED, got: {op_result}",
                     })
-                
-                # Test K: Known pipeline errors are translated correctly
-                # We can't easily test this without invoking the actual operator,
-                # but we can verify the error mapping logic exists
-                try:
-                    from addon.toonflow_ai.operator import message_for_error, _KnownPipelineError
-                    result["info"]["error_mapping_available"] = True
-                    result["info"]["known_error_types_count"] = len(_KnownPipelineError)
-                except Exception as e:
+                if _stub_called["count"] == 1:
+                    result["info"]["pipeline_stub_invoked_once"] = True
+                else:
+                    result["errors"].append({
+                        "type": "StubInvocationError",
+                        "message": f"Pipeline stub called {_stub_called['count']} times, expected 1",
+                    })
+                if _stub_called["last_concept"] == "A simple test concept":
+                    result["info"]["stub_received_correct_concept"] = True
+                else:
+                    result["errors"].append({
+                        "type": "StubInvocationError",
+                        "message": f"Stub received concept {_stub_called['last_concept']!r}, expected 'A simple test concept'",
+                    })
+                if "environment" in toonflow_props.last_status and "characters" in toonflow_props.last_status:
+                    result["info"]["last_status_updated_from_operator"] = True
+                else:
                     result["warnings"].append({
-                        "type": "ImportWarning",
-                        "message": f"Could not validate error mapping: {e}",
+                        "type": "StatusWarning",
+                        "message": f"last_status not updated as expected: {toonflow_props.last_status!r}",
                     })
-                
-                # Test L: Unexpected errors don't corrupt registration state
-                # This is harder to test in a script, but we can at least verify
-                # the operator has the unexpected error handler
-                try:
-                    import addon.toonflow_ai.operator as op_module
-                    if hasattr(op_module, "report_unexpected"):
-                        result["info"]["unexpected_error_handler_present"] = True
-                    else:
-                        result["warnings"].append({
-                            "type": "HandlerWarning",
-                            "message": "Unexpected error handler not found",
-                        })
-                except Exception as e:
+
+                # --- K: known pipeline error mapping ---
+                _stub_called["count"] = 0
+                _stub_called["last_concept"] = None
+
+                def _stub_known_error(concept):
+                    _stub_called["count"] += 1
+                    from ai.errors import InvalidConceptError
+                    raise InvalidConceptError("Concept is empty or not a valid string.")
+
+                pipeline.create_scene_from_concept = _stub_known_error
+                toonflow_props.concept = "test"
+                op_result = bpy.ops.toonflow.generate_scene()
+                if "CANCELLED" in op_result:
+                    result["info"]["operator_known_error_cancelled"] = True
+                else:
+                    result["errors"].append({
+                        "type": "OperatorError",
+                        "message": f"Known error did not return CANCELLED, got: {op_result}",
+                    })
+                if toonflow_props.last_status == "Concept is empty or not a valid string.":
+                    result["info"]["known_error_status_updated"] = True
+                else:
+                    result["errors"].append({
+                        "type": "StatusError",
+                        "message": f"Expected error status, got: {toonflow_props.last_status!r}",
+                    })
+
+                # Restore stub for next test
+                pipeline.create_scene_from_concept = _stub_create_scene_from_concept
+
+                # --- L: unexpected error handling ---
+                _stub_called["count"] = 0
+                _stub_called["last_concept"] = None
+
+                def _stub_unexpected_error(concept):
+                    _stub_called["count"] += 1
+                    raise RuntimeError("Unexpected test error")
+
+                pipeline.create_scene_from_concept = _stub_unexpected_error
+                toonflow_props.concept = "test"
+                op_result = bpy.ops.toonflow.generate_scene()
+                if "CANCELLED" in op_result:
+                    result["info"]["operator_unexpected_error_cancelled"] = True
+                else:
+                    result["errors"].append({
+                        "type": "OperatorError",
+                        "message": f"Unexpected error did not return CANCELLED, got: {op_result}",
+                    })
+                if "Unexpected error" in toonflow_props.last_status:
+                    result["info"]["unexpected_error_status_updated"] = True
+                else:
                     result["warnings"].append({
-                        "type": "ImportWarning", 
-                        "message": f"Could not check unexpected error handler: {e}",
+                        "type": "StatusWarning",
+                        "message": f"Unexpected error status not updated: {toonflow_props.last_status!r}",
                     })
-                    
+
+                # Verify registration state after error tests
+                if hasattr(bpy.context.scene, "toonflow"):
+                    result["info"]["registration_intact_after_errors"] = True
+                else:
+                    result["errors"].append({
+                        "type": "StateError",
+                        "message": "Scene.toonflow missing after error tests",
+                    })
+                if hasattr(bpy.types, "TOONFLOW_OT_generate_scene"):
+                    result["info"]["operator_registered_after_errors"] = True
+                else:
+                    result["errors"].append({
+                        "type": "StateError",
+                        "message": "Operator missing after error tests",
+                    })
+
+                # Restore original stub
+                pipeline.create_scene_from_concept = _stub_create_scene_from_concept
+
             except Exception as e:
                 result["errors"].append({
                     "type": "RuntimeError",
                     "message": f"Operator behavior testing failed: {e}",
-                    "traceback": traceback.format_exc()
+                    "traceback": traceback.format_exc(),
                 })
 
-        # Step 6: Clean unregister
+        # Step 7: Clean unregister
         try:
             toonflow_ai.unregister()
             result["info"]["unregistration_success"] = True
@@ -365,27 +400,24 @@ def main():
             set_error_and_exit("RuntimeError", f"Add-on unregistration failed: {e}")
             return
 
-        # Step 7: Validate clean unregister state
+        # Step 8: Validate clean unregister state
         try:
-            scene = bpy.context.scene
-            if not hasattr(scene, "toonflow"):
+            if not hasattr(bpy.context.scene, "toonflow"):
                 result["info"]["unregister_clean"] = True
             else:
                 result["warnings"].append({
                     "type": "StateWarning",
                     "message": "Scene.toonflow still present after unregistration",
                 })
-                
-            # Check operator unregistered
+
             if not hasattr(bpy.types, "TOONFLOW_OT_generate_scene"):
                 result["info"]["operator_unregistered"] = True
             else:
                 result["warnings"].append({
-                    "type": "StateWarning", 
+                    "type": "StateWarning",
                     "message": "TOONFLOW_OT_generate_scene still registered after unregistration",
                 })
-                
-            # Check panel unregistered
+
             if not hasattr(bpy.types, "TOONFLOW_PT_panel"):
                 result["info"]["panel_unregistered"] = True
             else:
@@ -397,7 +429,7 @@ def main():
             result["errors"].append({
                 "type": "RuntimeError",
                 "message": f"Unregister state validation failed: {e}",
-                "traceback": traceback.format_exc()
+                "traceback": traceback.format_exc(),
             })
 
         # Final success determination
@@ -411,7 +443,7 @@ def main():
         result["errors"].append({
             "type": "UnexpectedError",
             "message": f"Unexpected error during functional validation: {e}",
-            "traceback": traceback.format_exc()
+            "traceback": traceback.format_exc(),
         })
 
     print(json.dumps(result))
@@ -642,8 +674,13 @@ def execute_blender_functional_runtime(
 
     This executor validates the add-on's functional runtime behavior
     inside a real Blender process without requiring Ollama or network
-    access. It uses a stubded pipeline boundary for deterministic
-    results.
+    access by:
+    1. Applying a deterministic pipeline stub before importing the add-on
+    2. Registering the add-on in Blender
+    3. Actually invoking the registered TOONFLOW_OT_generate_scene operator via bpy.ops
+    4. Verifying operator execution results and side effects
+    5. Testing error handling paths through the actual operator execution
+    6. Cleaning up registration state after tests
 
     Args:
         blender_executable: Path to the Blender executable.
