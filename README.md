@@ -33,11 +33,8 @@ The shared documentation in `docs/` is the project’s primary source of truth f
 - [Project Schema Versioning & Migration Foundation](docs/PROJECT_SCHEMA_VERSIONING_AND_MIGRATIONS.md)
 - [Project CLI & Batch Runner Foundation](docs/PROJECT_CLI_AND_BATCH_RUNNER.md)
 - [Project Batch Mode & CI Integration Foundation](docs/PROJECT_BATCH_MODE_AND_CI_INTEGRATION.md)
-- [Project Report & CI Artifacts](docs/PROJECT_REPORTS_AND_CI_ARTIFACTS.md)
+- [Project Reports & CI Artifacts](docs/PROJECT_REPORTS_AND_CI_ARTIFACTS.md)
 - [Batch Filtering & Selective Execution](docs/BATCH_FILTERING_AND_SELECTIVE_EXECUTION.md)
-- [Project Manifest & Batch Configuration Foundation](docs/PROJECT_MANIFEST_AND_BATCH_CONFIGURATION.md)
-- [Manifest CLI Overrides & Configuration Precedence Foundation](docs/MANIFEST_CLI_OVERRIDES_AND_CONFIGURATION_PRECEDENCE.md)
-- [Batch Dry-Run Mode](docs/BATCH_DRY_RUN_MODE.md)
 - [Machine-Readable Dry-Run JSON Output](docs/BATCH_DRY_RUN_JSON_OUTPUT.md)
 - [Batch Resume and Continuation](docs/BATCH_RESUME_AND_CONTINUATION.md)
 - [Batch Retry and Failure Recovery](docs/BATCH_RETRY_AND_FAILURE_RECOVERY.md)
@@ -53,6 +50,8 @@ The shared documentation in `docs/` is the project’s primary source of truth f
 
 `TOONFLOW-PHASE-035 — Verification Boundary Hardening & Project State Consistency` is complete.
 `TOONFLOW-PHASE-036 — Release Packaging & Repository Readiness Foundation` is complete.
+`TOONFLOW-PHASE-037 — Functional Runtime Validation & Documentation Completion is complete.`
+
 Future phases will be defined by the project owner.
 
 ## Initial layout
@@ -73,3 +72,5 @@ tests/                 Reserved for future automated tests
 3. Enable **TOONFLOW AI** and then disable it again.
 
 The package currently registers and unregisters only; it adds no UI or Blender functionality.
+
+(End of file - total 75 lines)
